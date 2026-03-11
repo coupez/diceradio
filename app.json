@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "dice-radio",
+    "slug": "dice-radio",
+    "version": "1.0.0",
+    "scheme": "diceradio",
+    "orientation": "portrait",
+    "icon": "./assets/dice-logo.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/dice-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#061038"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.lucas.diceradio"
+    },
+    "android": {
+      "package": "com.lucas.diceradio",
+      "adaptiveIcon": {
+        "backgroundColor": "#061038",
+        "foregroundImage": "./assets/dice-logo.png",
+        "monochromeImage": "./assets/dice-logo.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/dice-logo.png"
+    },
+    "plugins": [
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "DiceWidget",
+              "label": "Dice Radio",
+              "description": "Tap to roll chaotic Spotify music",
+              "minWidth": "56dp",
+              "minHeight": "56dp",
+              "targetCellWidth": 1,
+              "targetCellHeight": 1,
+              "resizeMode": "none"
+            }
+          ]
+        }
+      ],
+      "expo-quick-actions"
+    ],
+    "extra": {
+      "spotifyClientId": "c6731cc443394d289461978af4df7b85",
+      "eas": {
+        "projectId": "e3284621-81e2-470e-93bb-cd4d235f8de1"
+      }
+    }
+  }
+}
