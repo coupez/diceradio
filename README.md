@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/dice-logo.png" width="120" alt="Dice Radio logo" />
+</p>
+
 # Dice Radio
 
 Chaotic Spotify discovery app. Tap roll, get a random track, and let the music play.
