@@ -4,15 +4,16 @@
 
 # Dice Radio
 
-Chaotic Spotify discovery app. Tap roll, get a random track, and let the music play.
+Chaotic Spotify discovery app. Tap roll, get a random track or playlist, and let the music play.
 
 ## Features
 
 - **Random roll** — searches Spotify with random genres and wildcards to surface unexpected tracks
+- **Playlist roll mode** — toggle between discovering random tracks or random playlists
 - **Auto-radio** — queues ~10 related tracks after each roll so music keeps playing
 - **Playlist sync** — every rolled track is saved to a "Chaos Calls" playlist on Spotify (no duplicates)
-- **Roll history** — persisted locally, tap any entry to open it in Spotify
-- **Home screen widget** — 1x1 Android widget that rolls a track without opening the app
+- **Roll history** — persisted locally with track/playlist indicators, tap any entry to open it in Spotify
+- **Home screen widget** — 1x1 Android widget that rolls a track or playlist without opening the app
 - **Quick action** — long-press the app icon to roll with a cute dice animation
 - **Background playback** — starts music on your active Spotify device without switching apps
 
