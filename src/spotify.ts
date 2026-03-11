@@ -1,12 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { SpotifyToken, SpotifyTrack } from "./types";
+import { SpotifyToken, SpotifyTrack, RollMode } from "./types";
 import { GENRE_SEEDS } from "./spotify-seed";
 
 const API = "https://api.spotify.com/v1";
 const PLAYLIST_ID_KEY = "dice_radio_playlist_id";
+const ROLL_MODE_KEY = "dice_radio_roll_mode";
 
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+function pick<T>(arr: (T | null)[]): T {
+  arr = arr.filter((x): x is T => x !== null);
+  return arr[Math.floor(Math.random() * arr.length)] as T;
 }
 
 // Random wildcard character to inject randomness into search queries
@@ -164,7 +166,7 @@ async function getPlaylistTrackUris(
       headers: { Authorization: `Bearer ${token.accessToken}` },
     });
     if (!res.ok) break;
-    const json = await res.json();
+    const json: any = await res.json();
     for (const entry of json.items ?? []) {
       if (entry.item?.uri) uris.add(entry.item.uri);
     }
@@ -187,6 +189,116 @@ export async function refreshPlaylist(token: SpotifyToken): Promise<string> {
   const id = await getOrCreatePlaylist(token);
   return "Created new playlist: " + id;
 }
+
+// ---------- Roll mode persistence ----------
+
+export async function getRollMode(): Promise<RollMode> {
+  const stored = await AsyncStorage.getItem(ROLL_MODE_KEY);
+  return stored === "playlist" ? "playlist" : "track";
+}
+
+export async function setRollMode(mode: RollMode): Promise<void> {
+  await AsyncStorage.setItem(ROLL_MODE_KEY, mode);
+}
+
+// ---------- Current user ----------
+
+let cachedUserId: string | null = null;
+
+async function getCurrentUserId(token: SpotifyToken): Promise<string> {
+  if (cachedUserId) return cachedUserId;
+  const res = await fetch(`${API}/me`, {
+    headers: { Authorization: `Bearer ${token.accessToken}` },
+  });
+  if (!res.ok) throw new Error("Failed to fetch current user");
+  const json = await res.json();
+  cachedUserId = json.id;
+  return json.id;
+}
+
+// ---------- Chaotic playlist search ----------
+
+export async function fetchChaoticPlaylist(
+  token: SpotifyToken,
+  attempts = 5,
+  maxOffset?: number,
+): Promise<SpotifyTrack> {
+  const headers = { Authorization: `Bearer ${token.accessToken}` };
+  const userId = await getCurrentUserId(token);
+
+  const genre = pick(GENRE_SEEDS);
+  const wildcard = randomWildcard();
+  const offset = Math.floor(Math.random() * Math.min(500, maxOffset ?? 500));
+  const q = encodeURIComponent(`${genre} ${wildcard}`);
+
+  const res = await fetch(
+    `${API}/search?type=playlist&limit=10&offset=${offset}&q=${q}`,
+    { headers },
+  );
+
+  if (!res.ok) {
+    const body = await res.text();
+    console.warn(`Playlist search failed (${res.status}): ${body}`);
+    throw new Error(`Playlist search failed (${res.status}): ${body}`);
+  }
+
+  const json = await res.json();
+  const allPlaylists: any[] = json.playlists?.items ?? [];
+  console.log(
+    `[playlist-roll] query="${genre} ${wildcard}" offset=${offset} results=${allPlaylists.length}`,
+  );
+  const playlists = allPlaylists.filter(
+    (p: any) =>
+      p &&
+      p.owner?.id !== userId &&
+      (p.tracks?.total ?? p.items?.total ?? 0) > 0,
+  );
+  console.log(
+    `[playlist-roll] after filtering own user (${userId}): ${playlists.length} playlists`,
+  );
+
+  if (!playlists.length) {
+    if (attempts > 0) {
+      return fetchChaoticPlaylist(token, attempts - 1, Math.floor(offset / 2));
+    }
+    throw new Error("No playlists found — try again");
+  }
+
+  const p: any = pick(playlists);
+  console.log(
+    `[playlist-roll] picked "${p.name}" by ${p.owner?.display_name} (${p.tracks?.total} tracks)`,
+  );
+  return {
+    id: p.id,
+    name: p.name,
+    artists: [p.owner?.display_name ?? "Unknown"],
+    uri: p.uri,
+    externalUrl: p.external_urls?.spotify,
+    genre,
+  };
+}
+
+export async function startPlaylistPlayback(
+  token: SpotifyToken,
+  playlistUri: string,
+): Promise<void> {
+  const res = await fetch(`${API}/me/player/play`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token.accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ context_uri: playlistUri }),
+  });
+
+  if (res.status === 204) return;
+  const body = await res.text();
+  throw new Error(
+    `Playlist playback failed (${res.status}): ${body || "No active Spotify device"}`,
+  );
+}
+
+// ---------- Playlist sync ----------
 
 export async function syncHistoryToPlaylist(
   token: SpotifyToken,

@@ -23,12 +23,16 @@ import { clearToken, ensureFreshToken, signInSpotify } from "./src/auth";
 import { addToHistory, getHistory, HistoryEntry } from "./src/history";
 import {
   fetchChaoticTrack,
+  fetchChaoticPlaylist,
   refreshPlaylist,
   queueRelatedTracks,
   startPlayback,
+  startPlaylistPlayback,
   syncHistoryToPlaylist,
+  getRollMode,
+  setRollMode as saveRollMode,
 } from "./src/spotify";
-import { SpotifyToken } from "./src/types";
+import { SpotifyToken, RollMode } from "./src/types";
 import { DiceWidget } from "./src/widget/DiceWidget";
 
 export default function App() {
@@ -47,6 +51,7 @@ function AppContent() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [quickRolling, setQuickRolling] = useState(false);
+  const [rollMode, setRollMode] = useState<RollMode>("track");
   const wobbleAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
@@ -66,7 +71,27 @@ function AppContent() {
     (async () => {
       const t = await ensureFreshToken();
       setToken(t);
-      setHistory(await getHistory());
+      const h = await getHistory();
+      setHistory(h);
+      setRollMode(await getRollMode());
+
+      if (__DEV__) {
+        console.log("[dev] ---- Dice Radio startup ----");
+        if (t) {
+          console.log("[dev] access token:", t.accessToken);
+          console.log(
+            "[dev] token expires:",
+            t.expiresAt ? new Date(t.expiresAt).toLocaleTimeString() : "unknown",
+          );
+        } else {
+          console.log("[dev] no stored token (not logged in)");
+        }
+        console.log("[dev] history entries:", h.length);
+        const AsyncStorage =
+          require("@react-native-async-storage/async-storage").default;
+        const pid = await AsyncStorage.getItem("dice_radio_playlist_id");
+        console.log("[dev] playlist ID:", pid ?? "(none)");
+      }
     })();
   }, []);
 
@@ -127,28 +152,46 @@ function AppContent() {
         throw new Error("Session expired. Please reconnect Spotify.");
       }
 
-      const track = await fetchChaoticTrack(fresh);
-      const updated = await addToHistory(track);
-      setHistory(updated);
-
-      // Sync to playlist first so playback can use playlist context
-      await syncHistoryToPlaylist(
-        fresh,
-        updated.map((e) => e.uri),
-      ).catch((e) => console.warn("Playlist sync failed:", e));
-
-      try {
-        await startPlayback(fresh, track.uri);
-        if (track.genre) {
-          queueRelatedTracks(fresh, track.genre, track.uri).catch((e) =>
-            console.warn("Queue failed:", e),
-          );
+      if (rollMode === "playlist") {
+        // Playlist mode: find a random playlist and start it
+        const playlist = await fetchChaoticPlaylist(fresh);
+        console.log("[roll] playlist result:", playlist.name, playlist.uri);
+        const updated = await addToHistory(playlist, "playlist");
+        console.log("[roll] history updated, entries:", updated.length);
+        setHistory(updated);
+        try {
+          await startPlaylistPlayback(fresh, playlist.uri);
+        } catch {
+          if (playlist.externalUrl) {
+            await Linking.openURL(playlist.externalUrl);
+          } else {
+            await Linking.openURL("spotify://");
+          }
         }
-      } catch {
-        if (track.externalUrl) {
-          await Linking.openURL(track.externalUrl);
-        } else {
-          await Linking.openURL("spotify://");
+      } else {
+        // Track mode: find a random track, queue related
+        const track = await fetchChaoticTrack(fresh);
+        const updated = await addToHistory(track, "track");
+        setHistory(updated);
+
+        await syncHistoryToPlaylist(
+          fresh,
+          updated.map((e) => e.uri),
+        ).catch((e) => console.warn("Playlist sync failed:", e));
+
+        try {
+          await startPlayback(fresh, track.uri);
+          if (track.genre) {
+            queueRelatedTracks(fresh, track.genre, track.uri).catch((e) =>
+              console.warn("Queue failed:", e),
+            );
+          }
+        } catch {
+          if (track.externalUrl) {
+            await Linking.openURL(track.externalUrl);
+          } else {
+            await Linking.openURL("spotify://");
+          }
         }
       }
     } catch (err: any) {
@@ -156,7 +199,7 @@ function AppContent() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, rollMode]);
 
   useEffect(() => {
     requestWidgetUpdate({
@@ -324,14 +367,15 @@ function AppContent() {
                 activeOpacity={0.6}
               >
                 <View style={styles.historyIndex}>
-                  <Text style={styles.historyIndexText}>{index + 1}</Text>
+                  <Text style={styles.historyIndexText}>{history.length - index}</Text>
                 </View>
                 <View style={styles.historyMeta}>
                   <Text style={styles.historyTrack} numberOfLines={1}>
-                    {item.name}
+                    {item.source === "playlist" ? "📋 " : ""}{item.name}
                   </Text>
                   <Text style={styles.historyArtist} numberOfLines={1}>
                     {item.artists.join(", ")}
+                    {item.genre ? ` · ${item.genre}` : ""}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -374,6 +418,56 @@ function AppContent() {
           <View style={styles.modalSheet}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>Settings</Text>
+
+            <View style={styles.settingsRow}>
+              <Text style={styles.settingsRowIcon}>🎲</Text>
+              <View style={styles.settingsRowContent}>
+                <Text style={styles.settingsRowText}>Roll mode</Text>
+                <Text style={styles.settingsRowHint}>
+                  What to discover when you roll
+                </Text>
+              </View>
+              <View style={styles.modeToggle}>
+                <TouchableOpacity
+                  style={[
+                    styles.modeOption,
+                    rollMode === "track" && styles.modeOptionActive,
+                  ]}
+                  onPress={() => {
+                    setRollMode("track");
+                    saveRollMode("track");
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.modeOptionText,
+                      rollMode === "track" && styles.modeOptionTextActive,
+                    ]}
+                  >
+                    Track
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.modeOption,
+                    rollMode === "playlist" && styles.modeOptionActive,
+                  ]}
+                  onPress={() => {
+                    setRollMode("playlist");
+                    saveRollMode("playlist");
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.modeOptionText,
+                      rollMode === "playlist" && styles.modeOptionTextActive,
+                    ]}
+                  >
+                    Playlist
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
 
             <TouchableOpacity
               style={styles.settingsRow}
@@ -641,6 +735,28 @@ const styles = StyleSheet.create({
     color: "#555",
     fontSize: 13,
     marginTop: 2,
+  },
+  modeToggle: {
+    flexDirection: "row",
+    backgroundColor: "#0f0f12",
+    borderRadius: 10,
+    padding: 3,
+  },
+  modeOption: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+  },
+  modeOptionActive: {
+    backgroundColor: "#1ed760",
+  },
+  modeOptionText: {
+    color: "#666",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  modeOptionTextActive: {
+    color: "#111",
   },
   closeModal: {
     marginTop: 24,

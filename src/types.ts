@@ -12,3 +12,5 @@ export type SpotifyTrack = {
   externalUrl?: string;
   genre?: string;
 };
+
+export type RollMode = "track" | "playlist";
